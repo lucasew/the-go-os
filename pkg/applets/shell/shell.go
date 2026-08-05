@@ -33,7 +33,7 @@ func init() {
 }
 
 func runSh(ctx context.Context, args []string) error {
-	runner, err := newRunner(ctx)
+	runner, env, err := newRunner(ctx)
 	if err != nil {
 		return err
 	}
@@ -52,23 +52,27 @@ func runSh(ctx context.Context, args []string) error {
 	}
 
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		return runInteractive(ctx, runner)
+		return runInteractive(ctx, runner, env)
 	}
 	return runReader(ctx, runner, os.Stdin, "")
 }
 
-func newRunner(ctx context.Context) (*interp.Runner, error) {
+func newRunner(ctx context.Context) (*interp.Runner, *shellEnv, error) {
 	s := stdio.From(ctx)
 	in := s.In
-	// interp.StdIO expects stdin usable as file for interactive; use os.Stdin when possible.
 	if in == nil {
 		in = os.Stdin
 	}
-	return interp.New(
+	env := newShellEnv(os.Environ())
+	// Inherit PS1 from the process environment when set; otherwise install a default.
+	ensureDefaultPS1(env)
+	r, err := interp.New(
+		interp.Env(env),
 		interp.StdIO(asFileOrNil(in), s.Out, s.Err),
 		interp.CallHandler(callAppletsFirst),
 		interp.ExecHandlers(execAppletsFirst),
 	)
+	return r, env, err
 }
 
 func asFileOrNil(r io.Reader) io.Reader {
@@ -166,14 +170,14 @@ func runReader(ctx context.Context, runner *interp.Runner, r io.Reader, name str
 	return err
 }
 
-func runInteractive(ctx context.Context, runner *interp.Runner) error {
+func runInteractive(ctx context.Context, runner *interp.Runner, env *shellEnv) error {
 	parser := syntax.NewParser()
 	fmt.Fprintln(os.Stderr, "the-go-os sh (applets first; line edit; no history file)")
 
 	// liner puts the TTY in raw mode and restores on Close.
 	// No ReadHistory/WriteHistory — optional in-memory recall only.
 	if !liner.TerminalSupported() {
-		return runInteractivePlain(ctx, runner, parser)
+		return runInteractivePlain(ctx, runner, env, parser)
 	}
 
 	line := liner.NewLiner()
@@ -181,8 +185,17 @@ func runInteractive(ctx context.Context, runner *interp.Runner) error {
 	line.SetCtrlCAborts(true)
 	line.SetCompleter(appletCompleter)
 
+	var lastExit uint8
 	for {
-		input, err := line.Prompt("$ ")
+		// Expand full PS1 (colors, tput, $?), then sanitize for liner (no ESC/controls).
+		p := promptForLiner(formatPrompt(ctx, runner, env, lastExit))
+		input, err := line.Prompt(p)
+		if err != nil {
+			if errors.Is(err, liner.ErrInvalidPrompt) {
+				// Last resort: never die on a fancy PS1.
+				input, err = line.Prompt("$ ")
+			}
+		}
 		if err != nil {
 			if errors.Is(err, liner.ErrPromptAborted) {
 				fmt.Fprintln(os.Stderr)
@@ -202,17 +215,16 @@ func runInteractive(ctx context.Context, runner *interp.Runner) error {
 			return nil
 		}
 		line.AppendHistory(input) // session only
-		if err := runLine(ctx, runner, parser, input); err != nil {
-			return err
-		}
+		lastExit = runLine(ctx, runner, parser, input)
 	}
 }
 
-func runInteractivePlain(ctx context.Context, runner *interp.Runner, parser *syntax.Parser) error {
+func runInteractivePlain(ctx context.Context, runner *interp.Runner, env *shellEnv, parser *syntax.Parser) error {
 	fmt.Fprintln(os.Stderr, "(plain input; no line editing)")
 	in := bufio.NewScanner(os.Stdin)
+	var lastExit uint8
 	for {
-		fmt.Fprint(os.Stdout, "$ ")
+		fmt.Fprint(os.Stdout, formatPrompt(ctx, runner, env, lastExit))
 		if !in.Scan() {
 			return in.Err()
 		}
@@ -223,26 +235,26 @@ func runInteractivePlain(ctx context.Context, runner *interp.Runner, parser *syn
 		if input == "exit" {
 			return nil
 		}
-		if err := runLine(ctx, runner, parser, input); err != nil {
-			return err
-		}
+		lastExit = runLine(ctx, runner, parser, input)
 	}
 }
 
-func runLine(ctx context.Context, runner *interp.Runner, parser *syntax.Parser, input string) error {
+// runLine executes one interactive line and returns its exit status for $?.
+func runLine(ctx context.Context, runner *interp.Runner, parser *syntax.Parser, input string) uint8 {
 	prog, err := parser.Parse(strings.NewReader(input), "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		return nil
+		return 1
 	}
 	err = runner.Run(ctx, prog)
-	if _, ok := interp.IsExitStatus(err); ok {
-		return nil
+	if status, ok := interp.IsExitStatus(err); ok {
+		return status
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
-	return nil
+	return 0
 }
 
 // appletCompleter suggests registered applet names for the first word.
