@@ -14,6 +14,7 @@ import (
 
 	"github.com/lucasew/the-go-os/pkg/registry"
 	"github.com/lucasew/the-go-os/pkg/stdio"
+	"github.com/peterh/liner"
 	"golang.org/x/term"
 	"mvdan.cc/sh/v3/interp"
 	"mvdan.cc/sh/v3/syntax"
@@ -167,33 +168,100 @@ func runReader(ctx context.Context, runner *interp.Runner, r io.Reader, name str
 
 func runInteractive(ctx context.Context, runner *interp.Runner) error {
 	parser := syntax.NewParser()
-	fmt.Fprintln(os.Stderr, "the-go-os sh (applets first; mvdan; not bash)")
+	fmt.Fprintln(os.Stderr, "the-go-os sh (applets first; line edit; no history file)")
+
+	// liner puts the TTY in raw mode and restores on Close.
+	// No ReadHistory/WriteHistory — optional in-memory recall only.
+	if !liner.TerminalSupported() {
+		return runInteractivePlain(ctx, runner, parser)
+	}
+
+	line := liner.NewLiner()
+	defer line.Close()
+	line.SetCtrlCAborts(true)
+	line.SetCompleter(appletCompleter)
+
+	for {
+		input, err := line.Prompt("$ ")
+		if err != nil {
+			if errors.Is(err, liner.ErrPromptAborted) {
+				fmt.Fprintln(os.Stderr)
+				continue
+			}
+			if errors.Is(err, io.EOF) {
+				fmt.Fprintln(os.Stderr)
+				return nil
+			}
+			return err
+		}
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+		if input == "exit" {
+			return nil
+		}
+		line.AppendHistory(input) // session only
+		if err := runLine(ctx, runner, parser, input); err != nil {
+			return err
+		}
+	}
+}
+
+func runInteractivePlain(ctx context.Context, runner *interp.Runner, parser *syntax.Parser) error {
+	fmt.Fprintln(os.Stderr, "(plain input; no line editing)")
 	in := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Fprint(os.Stdout, "$ ")
 		if !in.Scan() {
 			return in.Err()
 		}
-		line := in.Text()
-		if line == "" {
+		input := strings.TrimSpace(in.Text())
+		if input == "" {
 			continue
 		}
-		if line == "exit" {
+		if input == "exit" {
 			return nil
 		}
-		prog, err := parser.Parse(strings.NewReader(line), "")
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			continue
-		}
-		err = runner.Run(ctx, prog)
-		if _, ok := interp.IsExitStatus(err); ok {
-			continue
-		}
-		if err != nil && !errors.Is(err, context.Canceled) {
-			fmt.Fprintln(os.Stderr, err)
+		if err := runLine(ctx, runner, parser, input); err != nil {
+			return err
 		}
 	}
+}
+
+func runLine(ctx context.Context, runner *interp.Runner, parser *syntax.Parser, input string) error {
+	prog, err := parser.Parse(strings.NewReader(input), "")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return nil
+	}
+	err = runner.Run(ctx, prog)
+	if _, ok := interp.IsExitStatus(err); ok {
+		return nil
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	return nil
+}
+
+// appletCompleter suggests registered applet names for the first word.
+func appletCompleter(line string) (c []string) {
+	fields := strings.Fields(line)
+	prefix := ""
+	if len(fields) > 0 && !strings.HasSuffix(line, " ") {
+		prefix = fields[len(fields)-1]
+	}
+	// Only complete first token as command name.
+	if len(fields) > 1 || (len(fields) == 1 && strings.HasSuffix(line, " ")) {
+		return nil
+	}
+	for _, name := range registry.Names() {
+		if strings.HasPrefix(name, prefix) {
+			c = append(c, name)
+		}
+	}
+	return c
 }
 
 type exitStatus uint8
