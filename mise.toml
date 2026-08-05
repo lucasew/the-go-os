@@ -33,12 +33,16 @@ description = "Lint all"
 depends = ["lint:*"]
 
 [tasks."test:go"]
-description = "Run Go tests"
+description = "Run unit tests (no Docker / integration tag)"
 run = "go test -count=1 ./..."
 
+[tasks."test:integration"]
+description = "Run testcontainers integration tests (needs Docker)"
+run = "go test -tags=integration -count=1 -timeout 15m -v ./test/integration/..."
+
 [tasks.test]
-description = "Run all tests"
-depends = ["test:*"]
+description = "Run unit tests"
+depends = ["test:go"]
 
 [tasks.generate]
 description = "Regenerate protobuf (needs protoc + go tool protoc-gen-go)"

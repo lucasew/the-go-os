@@ -1,4 +1,4 @@
-# Initful container image: single static binary as PID 1.
+# Initful container image: one multicall binary + symlinks it plants itself.
 FROM golang:1.26-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -6,13 +6,18 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -o /the-go-os ./cmd/the-go-os
 
+# Build a rootfs using our own ln (no host ln required in the final image).
+RUN mkdir -p /rootfs/bin \
+	&& cp /the-go-os /rootfs/the-go-os \
+	&& for n in $(/the-go-os list-symlinks); do \
+		/the-go-os ln -sfn /the-go-os /rootfs/bin/"$n"; \
+	done \
+	&& /the-go-os ln -sfn /the-go-os /rootfs/bin/the-go-os \
+	&& /the-go-os ls -la /rootfs/bin | head
+
 FROM gcr.io/distroless/static-debian12
-COPY --from=build /the-go-os /the-go-os
-# Symlinks for multicall (distroless has no shell to create them at build — bake in build stage)
-COPY --from=build /the-go-os /bin/init
-COPY --from=build /the-go-os /bin/systemctl
-COPY --from=build /the-go-os /bin/sh
-COPY --from=build /the-go-os /bin/ls
-COPY --from=build /the-go-os /bin/echo
-COPY --from=build /the-go-os /bin/cat
+COPY --from=build /rootfs/ /
+ENV THE_GO_OS_CONTROL_SOCKET=/run/the-go-os/control.sock
+# Prefer multicall names on PATH
+ENV PATH=/bin
 ENTRYPOINT ["/the-go-os", "init"]
