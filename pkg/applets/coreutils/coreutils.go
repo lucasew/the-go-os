@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lucasew/the-go-os/pkg/registry"
+	"github.com/lucasew/the-go-os/pkg/stdio"
 )
 
 func init() {
@@ -66,19 +67,21 @@ func (e exitCode) ExitCode() int { return int(e) }
 
 func runFalse(context.Context, []string) error { return exitCode(1) }
 
-func runEcho(_ context.Context, args []string) error {
-	fmt.Println(strings.Join(args[1:], " "))
-	return nil
+func runEcho(ctx context.Context, args []string) error {
+	out := stdio.From(ctx).Out
+	_, err := fmt.Fprintln(out, strings.Join(args[1:], " "))
+	return err
 }
 
-func runCat(_ context.Context, args []string) error {
+func runCat(ctx context.Context, args []string) error {
+	s := stdio.From(ctx)
 	if len(args) < 2 {
-		_, err := io.Copy(os.Stdout, os.Stdin)
+		_, err := io.Copy(s.Out, s.In)
 		return err
 	}
 	for _, path := range args[1:] {
 		if path == "-" {
-			if _, err := io.Copy(os.Stdout, os.Stdin); err != nil {
+			if _, err := io.Copy(s.Out, s.In); err != nil {
 				return err
 			}
 			continue
@@ -87,7 +90,7 @@ func runCat(_ context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		_, err = io.Copy(os.Stdout, f)
+		_, err = io.Copy(s.Out, f)
 		_ = f.Close()
 		if err != nil {
 			return err
@@ -96,7 +99,7 @@ func runCat(_ context.Context, args []string) error {
 	return nil
 }
 
-func runLS(_ context.Context, args []string) error {
+func runLS(ctx context.Context, args []string) error {
 	dir := "."
 	if len(args) > 1 {
 		dir = args[1]
@@ -105,28 +108,36 @@ func runLS(_ context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	out := stdio.From(ctx).Out
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() {
 			name += "/"
 		}
-		fmt.Println(name)
+		if _, err := fmt.Fprintln(out, name); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func runPwd(context.Context, []string) error {
+func runPwd(ctx context.Context, args []string) error {
+	_ = args
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	fmt.Println(filepath.Clean(wd))
-	return nil
+	_, err = fmt.Fprintln(stdio.From(ctx).Out, filepath.Clean(wd))
+	return err
 }
 
-func runEnv(context.Context, []string) error {
+func runEnv(ctx context.Context, args []string) error {
+	_ = args
+	out := stdio.From(ctx).Out
 	for _, e := range os.Environ() {
-		fmt.Println(e)
+		if _, err := fmt.Fprintln(out, e); err != nil {
+			return err
+		}
 	}
 	return nil
 }
