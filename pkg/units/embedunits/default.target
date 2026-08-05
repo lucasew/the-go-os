@@ -1,0 +1,4 @@
+[Unit]
+Description=Default target (container profile)
+Wants=hello.socket
+# hello.service is socket-activated; do not Wants= it here.

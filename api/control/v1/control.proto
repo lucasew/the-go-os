@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package control.v1;
+
+option go_package = "github.com/lucasew/the-go-os/pkg/control/v1;controlv1";
+
+// Control plane between admin applets (systemctl) and PID 1.
+// Framed as length-prefixed protobuf messages on a Unix socket (not gRPC).
+
+message Request {
+  oneof op {
+    ListUnitsRequest list_units = 1;
+    StartUnitRequest start_unit = 2;
+    StopUnitRequest stop_unit = 3;
+    RestartUnitRequest restart_unit = 4;
+    StatusUnitRequest status_unit = 5;
+    DaemonReloadRequest daemon_reload = 6;
+  }
+}
+
+message Response {
+  string error = 1; // empty = success
+  oneof result {
+    ListUnitsResponse list_units = 2;
+    StatusUnitResponse status_unit = 3;
+    Empty ok = 4;
+  }
+}
+
+message Empty {}
+
+message ListUnitsRequest {}
+
+message ListUnitsResponse {
+  repeated UnitInfo units = 1;
+}
+
+message StartUnitRequest {
+  string name = 1;
+}
+
+message StopUnitRequest {
+  string name = 1;
+}
+
+message RestartUnitRequest {
+  string name = 1;
+}
+
+message StatusUnitRequest {
+  string name = 1;
+}
+
+message DaemonReloadRequest {}
+
+message UnitInfo {
+  string name = 1;
+  string description = 2;
+  string kind = 3;   // service | socket | target
+  string state = 4;  // inactive | activating | active | failed | deactivating
+  int32 pid = 5;
+  string sub_state = 6;
+}
+
+message StatusUnitResponse {
+  UnitInfo unit = 1;
+}

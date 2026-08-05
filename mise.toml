@@ -1,0 +1,78 @@
+# Warning: Do not unify this file with others. Keep tool definitions localized.
+[tools]
+go = "1.26.5"
+# protoc for go generate ./pkg/control/... (plugin via go tool protoc-gen-go)
+protoc = "29.3"
+
+[tasks."install:tidy"]
+description = "Tidy go.mod and go.sum"
+run = "go mod tidy"
+
+[tasks."install:download"]
+description = "Download module dependencies"
+run = "go mod download"
+
+[tasks.install]
+description = "Tidy and download Go modules"
+depends = ["install:*"]
+
+[tasks."fmt:go"]
+description = "Format Go packages"
+run = "go fmt ./..."
+
+[tasks.fmt]
+description = "Format all"
+depends = ["fmt:*"]
+
+[tasks."lint:vet"]
+description = "Run go vet"
+run = "go vet ./..."
+
+[tasks.lint]
+description = "Lint all"
+depends = ["lint:*"]
+
+[tasks."test:go"]
+description = "Run Go tests"
+run = "go test -count=1 ./..."
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test:*"]
+
+[tasks.generate]
+description = "Regenerate protobuf (needs protoc + go tool protoc-gen-go)"
+run = "go generate ./pkg/control/..."
+
+[tasks."build:the-go-os"]
+description = "Build multicall binary into bin/the-go-os"
+run = "CGO_ENABLED=0 go build -o bin/the-go-os ./cmd/the-go-os"
+
+[tasks.build]
+description = "Build all binaries"
+depends = ["build:*"]
+
+[tasks.symlinks]
+description = "Create multicall symlinks under bin/applets/"
+depends = ["build"]
+run = [
+  "mkdir -p bin/applets",
+  "sh -c 'for n in $(./bin/the-go-os list-symlinks); do ln -sfn ../the-go-os bin/applets/$n; done'",
+  "echo symlinks in bin/applets/",
+]
+
+[tasks.smoke]
+description = "List applets and run a quick multicall echo"
+depends = ["build"]
+run = [
+  "./bin/the-go-os list-applets",
+  "./bin/the-go-os echo smoke-ok",
+]
+
+[tasks.ci]
+description = "install, fmt, lint, test, build"
+depends = ["install", "fmt", "lint", "test", "build"]
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "rm -rf bin/"

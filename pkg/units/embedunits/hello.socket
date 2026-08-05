@@ -1,0 +1,10 @@
+[Unit]
+Description=Hello demo socket
+PartOf=hello.service
+
+[Socket]
+ListenStream=18080
+Accept=no
+
+[Install]
+WantedBy=default.target

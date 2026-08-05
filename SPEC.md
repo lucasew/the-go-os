@@ -137,12 +137,13 @@ Same semantics as systemd for these keys only. Refine in implementation PRs; do 
 **Preferred paths** (systemd-shaped for P2 muscle memory):
 
 ```text
-embedded:   embed/units/**          (or equivalent in-module FS)
-on disk:    /etc/systemd/system/
-runtime:    /run/systemd/system/    (optional later)
+embedded:   pkg/units/embedunits/**   (//go:embed)
+on disk:    /etc/systemd/system/      (opt-in via THE_GO_OS_LOAD_SYSTEM_UNITS=1)
+extra:      THE_GO_OS_UNIT_PATH       (optional directory)
+runtime:    /run/systemd/system/      (optional later)
 ```
 
-Exact embed package path is an implementation detail; behavior above is normative.
+v0 default is **embed-only** so a host with a full systemd `/etc` does not pollute the unit set. Containers that ship units under `/etc/systemd/system` should set `THE_GO_OS_LOAD_SYSTEM_UNITS=1`. FS unit files that use keys outside the allowlist are **skipped with a warning** (embed remains strict).
 
 ---
 

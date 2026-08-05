@@ -1,0 +1,11 @@
+[Unit]
+Description=Hello demo service (scaffold)
+After=hello.socket
+# Started via socket activation (hello.socket); not pulled in by default.target Wants alone.
+
+[Service]
+Type=simple
+# Prefer PATH: image should put multicall "sleep" on PATH (symlink) or ship /bin/sleep.
+ExecStart=sleep 3600
+Restart=no
+SyslogIdentifier=hello
