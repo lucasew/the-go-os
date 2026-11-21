@@ -2,7 +2,7 @@
 [tools]
 go = "1.26.5"
 # protoc for go generate ./pkg/control/... (plugin via go tool protoc-gen-go)
-protoc = "29.3"
+protoc = "30.2"
 
 [tasks."install:tidy"]
 description = "Tidy go.mod and go.sum"
