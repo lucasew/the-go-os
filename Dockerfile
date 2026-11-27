@@ -1,5 +1,5 @@
 # Initful container image: one multicall binary + symlinks it plants itself.
-FROM golang:1.26-bookworm AS build
+FROM golang:1.27-bookworm@sha256:ce59b41415e2524ae99926fe1f37ce48ba8c194dcbd2a56a65436cdcefa2bd34 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
